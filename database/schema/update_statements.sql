@@ -1,0 +1,74 @@
+
+ALTER TABLE TEAM_03_VENDOR ADD (
+    APPROVAL_STATUS       VARCHAR2(20) DEFAULT 'PENDING' NOT NULL,
+    APPROVED_BY_USER_ID   NUMBER,
+    APPROVED_AT           TIMESTAMP,
+    REJECTION_REASON      VARCHAR2(1000)
+);
+
+ALTER TABLE TEAM_03_VENDOR ADD CONSTRAINT CK_03_VENDOR_APPROVAL_STATUS CHECK
+    (APPROVAL_STATUS IN ('PENDING', 'APPROVED', 'REJECTED'));
+
+ALTER TABLE TEAM_03_VENDOR ADD CONSTRAINT FK_03_VENDOR_APPROVED_BY FOREIGN KEY
+    (APPROVED_BY_USER_ID) REFERENCES TEAM_03_APP_USER (USER_ID);
+
+-- Existing vendors predate the approval workflow. They are explicitly
+-- grandfathered as approved by the existing System Administrator (USER_ID 1).
+UPDATE TEAM_03_VENDOR
+   SET APPROVAL_STATUS     = 'APPROVED',
+       APPROVED_BY_USER_ID = 1,
+       APPROVED_AT         = SYSTIMESTAMP,
+       REJECTION_REASON    = NULL;
+
+--------------------------------------------------------------------------------
+-- 2. Record whether the Ship User chose a quotation manually or requested
+--    automatic selection of the lowest valid complete bid.
+--------------------------------------------------------------------------------
+ALTER TABLE TEAM_03_PURCHASE_ORDER ADD (
+    SELECTION_METHOD VARCHAR2(20) DEFAULT 'MANUAL' NOT NULL
+);
+
+ALTER TABLE TEAM_03_PURCHASE_ORDER ADD CONSTRAINT CK_03_PO_SELECTION_METHOD CHECK
+    (SELECTION_METHOD IN ('MANUAL', 'LOWEST_BID'));
+
+-- Existing orders were created before automatic tender selection existed.
+UPDATE TEAM_03_PURCHASE_ORDER
+   SET SELECTION_METHOD = 'MANUAL'
+ WHERE SELECTION_METHOD IS NULL;
+
+--------------------------------------------------------------------------------
+-- 3. Admin cancellation and complete audit/reference vocabulary
+--------------------------------------------------------------------------------
+ALTER TABLE TEAM_03_RFQ_VENDOR DROP CONSTRAINT CK_03_RFQ_STATUS;
+ALTER TABLE TEAM_03_RFQ_VENDOR ADD CONSTRAINT CK_03_RFQ_STATUS CHECK
+    (INVITATION_STATUS IN ('SENT', 'VIEWED', 'QUOTED', 'DECLINED', 'EXPIRED', 'CANCELLED'));
+
+ALTER TABLE TEAM_03_QUOTATION DROP CONSTRAINT CK_03_QUOTATION_STATUS;
+ALTER TABLE TEAM_03_QUOTATION ADD CONSTRAINT CK_03_QUOTATION_STATUS CHECK
+    (QUOTATION_STATUS IN (
+        'DRAFT', 'SUBMITTED', 'SELECTED', 'REJECTED', 'EXPIRED', 'WITHDRAWN', 'CANCELLED'
+    ));
+
+ALTER TABLE TEAM_03_ACTIVITY_LOG DROP CONSTRAINT CK_03_ACTIVITY_ENTITY;
+ALTER TABLE TEAM_03_ACTIVITY_LOG ADD CONSTRAINT CK_03_ACTIVITY_ENTITY CHECK
+    (ENTITY_TYPE IN (
+        'DEMAND', 'RFQ_VENDOR', 'QUOTATION', 'PURCHASE_ORDER', 'DELIVERY', 'RATING',
+        'APP_USER', 'SHIP', 'VENDOR', 'ITEM', 'ITEM_CATEGORY'
+    ));
+
+ALTER TABLE TEAM_03_NOTIFICATION DROP CONSTRAINT CK_03_NOTIFICATION_REFERENCE;
+ALTER TABLE TEAM_03_NOTIFICATION ADD CONSTRAINT CK_03_NOTIFICATION_REFERENCE CHECK
+    (REFERENCE_TYPE IN (
+        'DEMAND', 'RFQ_VENDOR', 'QUOTATION', 'PURCHASE_ORDER', 'DELIVERY', 'RATING',
+        'APP_USER', 'SHIP', 'VENDOR', 'ITEM', 'ITEM_CATEGORY'
+    ));
+
+--------------------------------------------------------------------------------
+-- 4. A DELIVERY row is one physical shipment. The aggregate PO/Demand can be
+--    PARTIALLY_DELIVERED; an arrived shipment is DELIVERED.
+--------------------------------------------------------------------------------
+ALTER TABLE TEAM_03_DELIVERY DROP CONSTRAINT CK_03_DELIVERY_STATUS;
+ALTER TABLE TEAM_03_DELIVERY ADD CONSTRAINT CK_03_DELIVERY_STATUS CHECK
+    (DELIVERY_STATUS IN (
+        'PENDING', 'CONFIRMED', 'PACKED', 'DISPATCHED', 'DELIVERED', 'DELAYED', 'CANCELLED'
+    ));
